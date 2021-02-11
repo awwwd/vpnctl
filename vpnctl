@@ -10,7 +10,7 @@ _CONFIG_FILE="${HOME}/.vpnctl.conf"
 # Making readonly to avoid to ensure immutability
 readonly _VERSION _CISCO_VPN_BIN _CLI_NAME _CONFIG_FILE
 
-function showHelp {
+function _show_help {
 	cat <<-HELPMSG
 ${_CLI_NAME} provides an easy and automated way of connecting to VPN using Cisco
 AnyConnect and RSA SecureID soft token.
@@ -55,12 +55,12 @@ while getopts vh opt; do
 			;;
 		h)
 			# Show help with exit 0
-			showHelp
+			_show_help
 			exit 0
 			;;
 		?)
 			# Show error & provide the usage doc to users for invalid option
-			showHelp
+			_show_help
 			exit 1
 			;;
 	esac
