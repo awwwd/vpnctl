@@ -121,7 +121,7 @@ for help message
     -v, --version shows the version for vpnctl
 
 ### Common Errors
-Sometime you will get some errors asking you to retry. Please go-ahead and retry -- that fixes the problem most of the time. You may also want to verify the whether the proper permissions are given as mentioned above.
+Sometime you will get some errors asking you to retry. Please go-ahead and retry -- that fixes the problem most of the time. You may also want to verify whether proper permissions are given as mentioned above.
 
     ❯ vpnctl connect
     330:338: execution error: SecurID got an error: Connection is invalid. (-609)
