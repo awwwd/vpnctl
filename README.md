@@ -19,11 +19,11 @@ The easiest way to install is - On your terminal run the following commands -
 
 using curl
 
-    ❯ curl -sSLO <>
+    ❯ curl -sSLO https://raw.githubusercontent.com/awwwd/vpnctl/main/vpnctl
 
 or using wget
 
-    ❯ wget -O vpnctl <>
+    ❯ wget -O vpnctl https://raw.githubusercontent.com/awwwd/vpnctl/main/vpnctl
 
 you can now move the script to a executable path
 
