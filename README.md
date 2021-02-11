@@ -14,11 +14,6 @@ This `vpnctl` cli works only with the following requirement(s):
 - Cisco AnyConnect CLI `/opt/cisco/anyconnect/bin/vpn`
 - Written in Bash + AppleScript
 
-#### Limitations
-And here goes the limitation(s):
-- `vpnctl` is designed to work with the application based software token version. It doesn't work with email based on-demand token.
-
-
 ### Installation
 The easiest way to install is - On your terminal run the following commands -
 
@@ -69,7 +64,7 @@ Here goes an example (this is a onetime setup).
 
 
     ❯ vpnctl configure
-    Username [amitauddy]: amitauddy
+    Username [amitauddy]:
     RSA Pin:
     VPN Server >
     0: vpn-1.company.com	[default]
