@@ -1,0 +1,241 @@
+#!/usr/bin/env bash
+################################################################################
+#   A cli tool that provides an automated way of connecting to VPN usign RSA   #
+################################################################################
+# Some important variables
+_VERSION=1.0
+_CISCO_VPN_BIN=/opt/cisco/anyconnect/bin/vpn
+_CLI_NAME=$(basename $0)
+_CONFIG_FILE="${HOME}/.vpnctl.conf"
+# Making readonly to avoid to ensure immutability
+readonly _VERSION _CISCO_VPN_BIN _CLI_NAME _CONFIG_FILE
+
+function showHelp {
+	cat <<-HELPMSG
+${_CLI_NAME} provides an easy and automated way of connecting to VPN using Cisco
+AnyConnect and RSA SecureID soft token.
+
+Usage:
+  ${_CLI_NAME} <command>
+  ${_CLI_NAME} [options]
+
+Available Commands:
+  configure  One time configuration command that sets the ${_CLI_NAME} settings. If this
+             command is run with no arguments, you will be prompted for configuration
+             values such as your username, rsa pin and preferred vpn host.
+
+  connect    Helps connecting to VPN server.
+
+  status     Helps checking the connection status.
+
+  disconnect Helps disconnecting from the VPN server.
+
+Options:
+  -h, --help    help for ${_CLI_NAME}
+  -v, --version shows the version for ${_CLI_NAME}
+HELPMSG
+}
+
+# Transform long options to short ones to be able to use getopts
+for args in "$@"; do
+	shift
+	case "$args" in
+		"--version") set -- "$@" "-v" ;;
+		"--help") set -- "$@" "-h" ;;
+		*) set -- "$@" "$args"
+	esac
+done
+
+# Parse through the options and set variables if needed
+while getopts vh opt; do
+	case $opt in
+		v)
+			echo "$_VERSION"
+			exit 0
+			;;
+		h)
+			# Show help with exit 0
+			showHelp
+			exit 0
+			;;
+		?)
+			# Show error & provide the usage doc to users for invalid option
+			showHelp
+			exit 1
+			;;
+	esac
+done
+shift $(($OPTIND - 1))
+
+### Section to check arguments are valid on not
+## Check the number of subcommands passed with the arguments
+subCommand=("$@")
+
+# Only one is valid
+if ! [ "${#subCommand[@]}" -eq 1 ]; then
+	echo "Error: incorrect number of arguments for \"${_CLI_NAME}\"" >&2
+	echo -e "Try '${_CLI_NAME} --help' for more information" >&2
+	exit 1
+fi
+##
+
+# Check if the configuration is done
+function _is_configured {
+	if [[ -f "$_CONFIG_FILE" ]]; then
+		return true
+	fi
+	return false
+}
+
+# Get the state of VPN from the cisco vpn cli
+function _get_state {
+	if $_CISCO_VPN_BIN state | grep -qw Connected; then
+		echo connected
+	else
+		echo disconnected
+	fi
+}
+
+# Helps to connect to vpn
+function _connect {
+	local userName=${1?:"Error: username must be passed to ${BASH_SOURCE[0]} as first positional parameter."}
+	local rsaPin=${2?:"Error: rsapin must be passed to ${BASH_SOURCE[0]} as secord positional parameter."}
+	local vpnServer=${3?:"Error: vpn server must be passed to ${BASH_SOURCE[0]} as third positional parameter."}
+	osascript <<-EOF
+	set rsaApp to "SecurID"
+	set ciscoVpn to "Cisco AnyConnect Secure Mobility Client"
+	set thePin to ${rsaPin}
+
+	try
+		tell application rsaApp to quit
+		tell application ciscoVpn to quit
+	on error error_message number error_number
+		if error_number is equal to -128 then
+			-- Do nothing
+		else
+			log error_message
+		end if
+	end try
+
+	tell application rsaApp
+		activate
+		tell application "System Events"
+			keystroke thePin
+			keystroke return
+			delay 0.75
+			keystroke "c" using {command down}
+			delay 0.75
+			set rsaToken to ""
+			set rsaToken to (the clipboard)
+			set shellInput to "printf " & "'${userName}\\\n" & rsaToken & "\\\ny'"
+			set shellCommand to shellInput & " | ${_CISCO_VPN_BIN} -s connect ${vpnServer}"
+			log "Please wait! Connecting to ${vpnServer}..."
+			do shell script shellCommand
+		end tell
+	end tell
+
+	activate application ciscoVpn
+	quit application rsaApp
+	return
+	EOF
+
+	if [[ "disconnected" == "$(_get_state)" ]]; then
+		echo "Error: Something went wrong. Try connecting manually this time." >&2
+		exit 1
+	else
+		echo "Connected to $vpnServer."
+	fi
+}
+
+### Section to work on the subcommands
+## Prepare for the execution if list subcommand is passed
+if [[ "${subCommand[0]}" =~ ^configure$ ]]; then
+	# Read username
+	read -p "Username [$USER]: " userName
+	userName=${userName:-$USER}
+
+	# Read RSA Pin without echoing (Soft Token based)
+	read -s -p "RSA Pin: " rsaPin
+	echo
+
+	# Save the pin to keychain service
+	if [[ ! -z "${rsaPin// }" ]]; then
+		rsaPinId="vpnctl-rsa-pin"
+		security add-generic-password \
+			-a $userName -s $rsaPinId -w $rsaPin > /dev/null 2>&1
+	else
+		echo "Error: RSA Pin not entered. Retry the setup." >&2
+		exit 1
+	fi
+
+	# Read the VPN Server from vpn cli and provide that as a selection choice
+	VPN_SERVER=($($_CISCO_VPN_BIN hosts | awk '/>/ { print $2}')
+	echo "VPN Server >"
+
+	# Note: Incase anyone is porting this to work on zsh - remember arrays in zsh
+	# starts from index 1
+	idx=1
+	echo -e "  0: ${VPN_SERVER[0]}\t[default]"
+	while [ $idx -lt ${#VPN_SERVER[@]} ]; do
+		echo "  ${idx}: ${VPN_SERVER[idx]}"
+		((idx++))
+	done
+	read -p "Select: " vpnServerIdx
+	if [[ $vpnServerIdx -lt 0 ]] || [[ $vpnServerIdx -gt 4 ]]; then
+		echo "Error: incorrect selection for vpn host in \"${_CLI_NAME} configure\"" >&2
+		exit 1
+	fi
+	vpnServer=${VPN_SERVER[$vpnServerIdx]}
+	vpnServer=${vpnServer:-${VPN_SERVER[0]}}
+
+	if touch $_CONFIG_FILE; then
+		cat >$_CONFIG_FILE <<-EOCONFIG
+			userName=$userName
+			rsaPinId=$rsaPinId
+			vpnServer=$vpnServer
+		EOCONFIG
+	else
+		echo "Error: creating config file $_CONFIG_FILE failed." >&2
+		exit 1
+	fi
+	cat <<-EOM
+
+	Successfully configured ${_CLI_NAME}. This is an onetime setup and the configuraion
+	details are saved in '${_CONFIG_FILE}'. You can use \`${_CLI_NAME} -h\` or
+	\`${_CLI_NAME} --help\` to see the available commands.
+	EOM
+elif [[ "${subCommand[0]}" =~ ^status$ ]]; then
+	echo "VPN is currently $(_get_state)."
+elif [[ "${subCommand[0]}" =~ ^connect$ ]]; then
+	if [ _is_configured ]; then
+		if [[ "disconnected" == "$(_get_state)" ]]; then
+			if source $_CONFIG_FILE; then
+				rsaPin=$(security find-generic-password -s $rsaPinId -w)
+				_connect $userName $rsaPin $vpnServer
+			else
+				echo "Error: unable to read $_CONFIG_FILE" >&2
+				exit 1
+			fi
+		else
+			echo "VPN is already connected."
+		fi
+	else
+		echo "Error: ${_CLI_NAME} is not configured yet. Use \`vpnctl configure\` first." >&2
+		exit 1
+	fi
+elif [[ "${subCommand[0]}" =~ ^disconnect$ ]]; then
+	if ! [[ "disconnected" == "$(_get_state)" ]]; then
+		if ! $_CISCO_VPN_BIN disconnect > /dev/null 2>&1; then
+			echo "Error: something went wrong while disconnecting." >&2
+			exit 1
+		else
+			echo "VPN disconnected."
+		fi
+	else
+		echo "VPN is already disconnected."
+	fi
+else
+	echo "${_CLI_NAME}: missing subcommand" >&2
+	echo -e "Try '${_CLI_NAME} --help' for more information" >&2
+	exit 1
+fi
